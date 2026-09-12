@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>手机考勤日历</title>
+    <style>
+        * {box-sizing: border-box;margin:0;padding:0;font-family: system-ui,-apple-system, sans-serif;}
+        body {background:#f5f7fa;padding:12px;font-size:15px;}
+        .container {max-width:600px;margin:0 auto;}
+        .tool-bar {display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+        .stat-box {background:#fff;padding:14px;border-radius:10px;margin-bottom:12px;box-shadow:0 1px 4px #00000015;}
+        .stat-item {margin:4px 0;color:#333;}
+        .header-bar {display:flex;justify-content:space-between;align-items:center;margin:10px 0;}
+        button {padding:8px 12px;border:none;border-radius:6px;background:#2563eb;color:#fff;font-size:14px;cursor:pointer;}
+        button.del-btn {background:#dc2626;}
+        button.gray {background:#6b7280;}
+        button.small {padding:6px 10px;font-size:13px;}
+        .calendar-wrap {background:#fff;border-radius:10px;padding:10px;box-shadow:0 1px 4px #00000015;}
+        .week-title {display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;}
+        .week-title>div {text-align:center;font-weight:bold;color:#555;padding:6px;}
+        .days-grid {display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+        .day-cell {aspect-ratio:1/1;border:1px solid #e5e7eb;border-radius:8px;padding:4px;position:relative;cursor:pointer;font-size:11px;}
+        .day-cell.today {border:2px solid #2563eb;}
+        .day-head{display:flex;align-items:center;gap:4px;}
+        .day-num {font-weight:bold;font-size:14px;}
+        .tag-normal {font-size:11px;color:#059669;}
+        .tag-overtime {font-size:11px;color:#d97706;}
+        .tag-leave {font-size:11px;color:#6b7280;}
+        .time-text {position:absolute;bottom:2px;left:3px;right:3px;font-size:10px;}
+        .work-color{color:#059669;}
+        .over-color{color:#d97706;}
+        .empty-cell {background:#f9fafb;border:none;}
+        /*弹窗*/
+        .mask {position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:99;}
+        .modal {background:#fff;width:100%;max-width:420px;border-radius:12px;padding:20px;}
+        .modal h3 {margin-bottom:14px;}
+        .form-row {margin-bottom:12px;}
+        label {display:block;margin-bottom:4px;color:#444;}
+        input,textarea {width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:16px;}
+        textarea{min-height:60px;resize:vertical;}
+        .radio-group {display:flex;gap:12px;margin:8px 0;flex-wrap:wrap;}
+        .radio-item {display:flex;align-items:center;gap:4px;}
+        .btn-group {display:flex;gap:10px;margin-top:18px;}
+        .btn-group button {flex:1;padding:10px;font-size:16px;}
+        .hide {display:none !important;}
+        #fileInput{display:none;}
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="tool-bar">
+        <button class="small" id="btnExport">导出备份</button>
+        <button class="small" id="btnImport">导入恢复</button>
+        <input type="file" id="fileInput" accept=".json"/>
+    </div>
+
+    <div class="stat-box">
+        <h4>📊 本月统计</h4>
+        <div class="stat-item">总上班小时：<span id="sumWork">0</span> h</div>
+        <div class="stat-item">总加班小时：<span id="sumOvertime">0</span> h</div>
+        <div class="stat-item">正常工作日：<span id="cntNormal">0</span> 天</div>
+        <div class="stat-item">加班天数：<span id="cntOverDay">0</span> 天（标记为加班天即算1天）</div>
+        <div class="stat-item">实际工作天数：<span id="sumWorkDay">0</span> 天（有上班/加班时长即算1天）</div>
+    </div>
+
+    <div class="header-bar">
+        <button id="prevMonth">←上月</button>
+        <h3 id="currentYM"></h3>
+        <button id="nextMonth">下月→</button>
+    </div>
+
+    <div class="calendar-wrap">
+        <div class="week-title">
+            <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+        </div>
+        <div class="days-grid" id="calendarBody"></div>
+    </div>
+</div>
+
+<!--登记弹窗 dengji-->
+<div class="mask hide" id="modalDengji">
+    <div class="modal">
+        <h3 id="modalTitle">登记考勤</h3>
+        <div class="form-row">
+            <label>考勤类型</label>
+            <div class="radio-group">
+                <div class="radio-item">
+                    <input type="radio" name="workType" id="typeNormal" value="normal" checked>
+                    <label for="typeNormal">正常工作日</label>
+                </div>
+                <div class="radio-item">
+                    <input type="radio" name="workType" id="typeOver" value="overtime">
+                    <label for="typeOver">加班天</label>
+                </div>
+                <div class="radio-item">
+                    <input type="radio" name="workType" id="typeLeave" value="leave">
+                    <label for="typeLeave">请假</label>
+                </div>
+            </div>
+        </div>
+        <div class="form-row">
+            <label>上班时长（小时，如8.5）</label>
+            <input type="number" step="0.1" id="inpWorkHour" placeholder="输入上班小时">
+        </div>
+        <div class="form-row">
+            <label>加班时长（小时，如2）</label>
+            <input type="number" step="0.1" id="inpOverHour" placeholder="输入加班小时">
+        </div>
+        <div class="form-row">
+            <label>备注</label>
+            <textarea id="inpRemark" placeholder="出差、事假、项目说明等"></textarea>
+        </div>
+        <div class="btn-group">
+            <button class="gray" id="btnCancel">取消</button>
+            <button class="del-btn" id="btnDelete">删除该天记录</button>
+            <button id="btnSave">保存</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const STORAGE_KEY = "kaoqin_data";
+let currentYear, currentMonth;
+let selectDateStr = null;
+
+function getAllData(){
+    const str = localStorage.getItem(STORAGE_KEY);
+    return str ? JSON.parse(str) : {};
+}
+function saveAllData(obj){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+}
+
+//导出备份
+document.getElementById("btnExport").addEventListener("click",()=>{
+    const data = getAllData();
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "考勤备份_"+new Date().toLocaleDateString()+".json";
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+//导入恢复
+document.getElementById("btnImport").addEventListener("click",()=>{
+    document.getElementById("fileInput").click();
+});
+document.getElementById("fileInput").addEventListener("change",(e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev){
+        try{
+            const json = JSON.parse(ev.target.result);
+            if(confirm("确认导入？会覆盖当前全部考勤数据！")){
+                saveAllData(json);
+                renderCalendar(currentYear, currentMonth);
+                alert("导入成功");
+            }
+        }catch(err){
+            alert("文件格式错误");
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+});
+
+function openModal(dateStr){
+    selectDateStr = dateStr;
+    document.getElementById("modalTitle").innerText = "登记："+dateStr;
+    const data = getAllData();
+    const record = data[dateStr];
+    document.getElementById("inpWorkHour").value = "";
+    document.getElementById("inpOverHour").value = "";
+    document.getElementById("inpRemark").value = "";
+    document.getElementById("typeNormal").checked = true;
+
+    if(record){
+        document.getElementById("inpWorkHour").value = record.workHour ?? "";
+        document.getElementById("inpOverHour").value = record.overHour ?? "";
+        document.getElementById("inpRemark").value = record.remark ?? "";
+        if(record.workType === "overtime"){
+            document.getElementById("typeOver").checked = true;
+        }else if(record.workType === "leave"){
+            document.getElementById("typeLeave").checked = true;
+        }else{
+            document.getElementById("typeNormal").checked = true;
+        }
+    }
+    document.getElementById("modalDengji").classList.remove("hide");
+}
+function closeModal(){
+    document.getElementById("modalDengji").classList.add("hide");
+    selectDateStr = null;
+}
+
+document.getElementById("btnSave").addEventListener("click", ()=>{
+    if(!selectDateStr) return;
+    const workHour = parseFloat(document.getElementById("inpWorkHour").value) || 0;
+    const overHour = parseFloat(document.getElementById("inpOverHour").value) || 0;
+    const remark = document.getElementById("inpRemark").value.trim();
+    const workType = document.querySelector('input[name="workType"]:checked').value;
+
+    //校验不能负数
+    if(workHour <0 || overHour <0){
+        alert("工时不能为负数");
+        return;
+    }
+    //全部为0确认提示
+    if(workHour ===0 && overHour ===0 && workType !== 'leave'){
+        if(!confirm("上班和加班都为0，确定保存这条记录吗？")){
+            return;
+        }
+    }
+
+    const all = getAllData();
+    all[selectDateStr] = {
+        workHour,
+        overHour,
+        workType,
+        remark
+    };
+    saveAllData(all);
+    closeModal();
+    renderCalendar(currentYear, currentMonth);
+});
+
+document.getElementById("btnDelete").addEventListener("click", ()=>{
+    if(!selectDateStr) return;
+    if(!confirm("确定删除该天考勤记录？")) return;
+    const all = getAllData();
+    if(all[selectDateStr]){
+        delete all[selectDateStr];
+        saveAllData(all);
+    }
+    closeModal();
+    renderCalendar(currentYear, currentMonth);
+});
+document.getElementById("btnCancel").addEventListener("click", closeModal);
+
+function renderCalendar(y,m){
+    currentYear = y;
+    currentMonth = m;
+    document.getElementById("currentYM").innerText = `${y}年${m+1}月`;
+    const body = document.getElementById("calendarBody");
+    body.innerHTML = "";
+    const first = new Date(y,m,1);
+    const last = new Date(y,m+1,0);
+    const firstWeek = first.getDay();
+    const totalDay = last.getDate();
+    const allData = getAllData();
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+    for(let i=0;i<firstWeek;i++){
+        const div = document.createElement("div");
+        div.className = "day-cell empty-cell";
+        body.appendChild(div);
+    }
+    for(let d=1;d<=totalDay;d++){
+        const div = document.createElement("div");
+        div.className = "day-cell";
+        const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        if(dateStr === todayStr){
+            div.classList.add("today");
+        }
+        let html = `<div class="day-head"><span class="day-num">${d}</span>`;
+        const rec = allData[dateStr];
+        if(rec){
+            if(rec.workType === "normal"){
+                html += `<span class="tag-normal">工</span>`;
+            }else if(rec.workType === "overtime"){
+                html += `<span class="tag-overtime">加</span>`;
+            }else if(rec.workType === "leave"){
+                html += `<span class="tag-leave">假</span>`;
+            }
+        }
+        html += `</div>`;
+        if(rec && rec.workType !== "leave"){
+            html += `<span class="time-text"><span class="work-color">${rec.workHour}h</span>｜<span class="over-color">${rec.overHour}h</span></span>`;
+        }
+        div.innerHTML = html;
+        div.onclick = ()=> openModal(dateStr);
+        body.appendChild(div);
+    }
+    calcMonthStat(y,m);
+}
+
+function calcMonthStat(y,m){
+    const all = getAllData();
+    let sumWorkHour = 0;
+    let sumOverHour = 0;
+    let countNormalDay = 0;
+    let countOverDay = 0;
+    let countWorkDay = 0;
+
+    for(let key in all){
+        const d = new Date(key);
+        if(d.getFullYear() === y && d.getMonth() === m){
+            const r = all[key];
+            const wh = Number(r.workHour||0);
+            const oh = Number(r.overHour||0);
+            const tp = r.workType;
+            if(tp === 'leave') continue;
+
+            sumWorkHour += wh;
+            sumOverHour += oh;
+
+            if(tp === "normal") countNormalDay++;
+            if(tp === "overtime") countOverDay++;
+
+            if(wh > 0 || oh > 0){
+                countWorkDay++;
+            }
+        }
+    }
+
+    document.getElementById("sumWork").innerText = sumWorkHour.toFixed(1);
+    document.getElementById("sumOvertime").innerText = sumOverHour.toFixed(1);
+    document.getElementById("cntNormal").innerText = countNormalDay;
+    document.getElementById("cntOverDay").innerText = countOverDay;
+    document.getElementById("sumWorkDay").innerText = countWorkDay;
+}
+
+document.getElementById("prevMonth").addEventListener("click",()=>{
+    renderCalendar(currentYear, currentMonth -1);
+});
+document.getElementById("nextMonth").addEventListener("click",()=>{
+    renderCalendar(currentYear, currentMonth +1);
+});
+
+//每日21:30提醒
+function checkRemind(){
+    const now = new Date();
+    const h = now.getHours();
+    const mi = now.getMinutes();
+    if(h ===21 && mi ===30){
+        alert("⏰晚上9点半，请完成今日考勤记录！");
+    }
+}
+setInterval(checkRemind, 60*1000);
+
+const now = new Date();
+renderCalendar(now.getFullYear(), now.getMonth());
+</script>
+</body>
+</html>
