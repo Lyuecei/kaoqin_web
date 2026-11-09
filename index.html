@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>考勤记录</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif}
+body{background:#f5f7fa;padding:10px;font-size:14px}
+.container{max-width:700px;margin:0 auto}
+.stats{background:#fff;border-radius:10px;padding:12px;margin-bottom:10px;box-shadow:0 1px 3px #0000001a}
+.stats h3{margin-bottom:8px;color:#333}
+.stat-item{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;line-height:1.5}
+.salary-box{margin-top:12px;padding-top:10px;border-top:1px dashed #e5e7eb}
+.salary-box h4{margin-bottom:8px;color:#333;font-size:14px}
+.salary-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px}
+.salary-row label{white-space:nowrap}
+.salary-row input{width:90px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:14px}
+.salary-detail{font-size:12px;color:#666;line-height:1.6;margin-top:4px}
+.salary-total{font-weight:bold;color:#d9480f;font-size:15px;margin-top:6px}
+.btns-backup{display:flex;gap:8px;margin-top:10px}
+.btns-backup button{flex:1;padding:8px;border:none;border-radius:6px;background:#67c23a;color:#fff;font-size:13px;text-align:center;cursor:pointer}
+#file-input{position:absolute;left:-9999px;top:-9999px;opacity:0}
+.calendar{background:#fff;border-radius:10px;padding:10px;box-shadow:0 1px 3px #0000001a}
+.calendar-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.calendar-header button{border:none;background:#409eff;color:#fff;padding:6px 10px;border-radius:6px;font-size:14px}
+.week-title{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+.week-title div{text-align:center;font-weight:bold;color:#666;padding:4px}
+.day-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+
+/* 日期格子容器 */
+.day-cell{
+  min-height:96px;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  cursor:pointer;
+  position:relative;
+  overflow:hidden;
+  background:#fff;
+}
+/* 今日高亮 */
+.day-cell.today{
+  border:2px solid #409eff;
+  box-shadow:0 0 0 2px #409eff30;
+}
+/* 非本月格子 */
+.day-cell.other-month{
+  background:#f9f9f9;
+  color:#bbb;
+}
+/* 日期数字，上层 */
+.day-num{
+  position:absolute;
+  top:4px;
+  left:6px;
+  font-size:15px;
+  font-weight:bold;
+  color:#222;
+  z-index:2;
+}
+
+/*色块区域：从日期数字下方一直填充到格子底部，填满剩余全部空间*/
+.day-bottom{
+  position:absolute;
+  left:0;
+  right:0;
+  bottom:0;
+  top:28px;
+  display:flex;
+  flex-direction:column;
+  z-index:1;
+}
+/*上班色块，占一半高度；white-space:nowrap 强制文字不换行*/
+.work-block{
+  flex:1;
+  background:#27ae60;
+  color:#fff;
+  padding:3px 6px;
+  display:flex;
+  align-items:center;
+  font-size:12px;
+  white-space:nowrap;
+  overflow:hidden;
+}
+/*加班色块，占剩下一半高度；强制文字不换行*/
+.ot-block{
+  flex:1;
+  color:#fff;
+  padding:3px 6px;
+  display:flex;
+  align-items:center;
+  font-size:12px;
+  white-space:nowrap;
+  overflow:hidden;
+}
+.ot-block-day{background:#e67e22;}
+.ot-block-weekend{background:#9b59b6;}
+.ot-block-holiday{background:#e74c3c;}
+
+/*弹窗层级调到最高，解决遮挡问题*/
+.modal{
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  background:rgba(0,0,0,0.5);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:10px;
+  z-index:999;
+}
+.modal-box{
+  background:#fff;
+  border-radius:12px;
+  padding:16px;
+  width:100%;
+  max-width:420px;
+  z-index:1000;
+}
+.modal-box h3{margin-bottom:12px}
+.form-item{margin-bottom:10px}
+.form-item label{display:block;margin-bottom:4px;font-weight:500}
+.form-item input,.form-item select{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:16px}
+input:disabled{background:#eee;color:#999}
+.btn-group{display:flex;gap:8px;margin-top:14px}
+.btn-group button{flex:1;padding:10px;border:none;border-radius:6px;font-size:15px}
+.btn-save{background:#409eff;color:#fff}
+.btn-del{background:#f56c6c;color:#fff}
+.btn-close{background:#909399;color:#fff}
+.tip{font-size:12px;color:#888;margin-top:4px}
+.ot-radio-group{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 8px}
+.ot-radio-group label{display:flex;align-items:center;gap:3px;font-size:13px;font-weight:normal}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="stats">
+    <h3 id="monthTitle">本月统计</h3>
+    <div class="stat-item">
+      <div>✅上班天数：<span id="workDayCount">0</span>天</div>
+      <div>⏱上班总时长：<span id="workHourTotal">0</span>h</div>
+      <div>🟠日常加班：<span id="otDayTotal">0</span>h</div>
+      <div>🟣周末加班：<span id="otWeekendTotal">0</span>h</div>
+      <div>🔴节假日加班：<span id="otHolidayTotal">0</span>h</div>
+      <div>📌加班天数：<span id="otDayCount">0</span>天</div>
+      <div>📈加班总时长：<span id="otTotalAll">0</span>h</div>
+      <div style="grid-column:1/-1;font-weight:bold;color:#d9480f">📊工作总时长：<span id="totalWorkAll">0</span>h</div>
+    </div>
+    <div class="salary-box">
+      <h4>💰 本月预计工资</h4>
+      <div class="salary-row">
+        <label>底薪(元)：</label>
+        <input type="number" id="baseSalary" value="2300" step="100" min="0">
+        <span style="color:#888;font-size:12px">按22天×8h计算时薪</span>
+      </div>
+      <div class="salary-detail">
+        时薪：<span id="hourlyRate">0</span> 元/h<br>
+        日常加班费(1.5倍)：<span id="otDayPay">0</span> 元<br>
+        周末加班费(2倍)：<span id="otWeekendPay">0</span> 元<br>
+        节假日加班费(3倍)：<span id="otHolidayPay">0</span> 元
+      </div>
+      <div class="salary-total">预计总工资：<span id="estSalary">0</span> 元</div>
+    </div>
+    <div class="btns-backup">
+      <button id="exportBtn">导出备份</button>
+      <button id="importBtn">导入备份</button>
+      <input type="file" id="file-input" accept=".json">
+    </div>
+  </div>
+  <div class="calendar">
+    <div class="calendar-header">
+      <button id="prev">←上月</button>
+      <h2 id="ym">2026-09</h2>
+      <button id="next">下月→</button>
+    </div>
+    <div class="week-title">
+      <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+    </div>
+    <div class="day-grid" id="dayGrid"></div>
+  </div>
+</div>
+
+<!--考勤登记弹窗-->
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <h3 id="modalDate">登记</h3>
+    <div class="form-item">
+      <label>上班时长(h)</label>
+      <input type="number" step="0.01" id="workHour" placeholder="例：8.5">
+      <div class="tip">8.5 = 8小时30分</div>
+    </div>
+    <div class="form-item">
+      <label>加班类型（单选，只能选一种）</label>
+      <div class="ot-radio-group">
+        <label><input type="radio" name="otType" value="day" checked>日常加班</label>
+        <label><input type="radio" name="otType" value="weekend">周末加班</label>
+        <label><input type="radio" name="otType" value="holiday">节假日加班</label>
+        <label><input type="radio" name="otType" value="none">无加班</label>
+      </div>
+    </div>
+    <div class="form-item">
+      <label>加班时长(h)</label>
+      <input type="number" step="0.01" id="otHour" placeholder="填写加班小时">
+    </div>
+    <div class="btn-group">
+      <button class="btn-save" id="save">保存</button>
+      <button class="btn-del" id="del">删除记录</button>
+      <button class="btn-close" id="close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s=>document.querySelector(s);
+let currentDate = new Date();
+let activeDay = null;
+const STORAGE_KEY = "attendance_data";
+const BASE_SALARY_KEY = "base_salary";
+
+function getAttendance(){
+  const str = localStorage.getItem(STORAGE_KEY);
+  if(!str) return {};
+  try{
+    return JSON.parse(str);
+  }catch(e){
+    return {};
+  }
+}
+function saveAttendance(data){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function getBaseSalary(){
+  const val = localStorage.getItem(BASE_SALARY_KEY);
+  if(val === null) return 2300;
+  const num = Number(val);
+  return isNaN(num) ? 2300 : num;
+}
+function saveBaseSalary(val){
+  localStorage.setItem(BASE_SALARY_KEY, String(val));
+}
+
+function renderCalendar(){
+  const now = new Date();
+  const todayY = now.getFullYear();
+  const todayM = now.getMonth();
+  const todayD = now.getDate();
+
+  const y = currentDate.getFullYear();
+  const m = currentDate.getMonth();
+  $("#ym").innerText = `${y}-${String(m+1).padStart(2,'0')}`;
+  const grid = $("#dayGrid");
+  grid.innerHTML = "";
+  const first = new Date(y,m,1);
+  const last = new Date(y,m+1,0);
+  const startWeek = first.getDay();
+  const totalDays = last.getDate();
+  const data = getAttendance();
+
+  for(let i=0;i<startWeek;i++){
+    const cell = document.createElement("div");
+    cell.className = "day-cell other-month";
+    grid.appendChild(cell);
+  }
+
+  for(let d=1;d<=totalDays;d++){
+    const cell = document.createElement("div");
+    if(y === todayY && m === todayM && d === todayD){
+      cell.className = "day-cell today";
+    }else{
+      cell.className = "day-cell";
+    }
+
+    const dateKey = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    cell.dataset.date = dateKey;
+    const item = data[dateKey] || {};
+
+    const workH = Number(item.workHour||0);
+    const otDayH = Number(item.otDay||0);
+    const otWeekendH = Number(item.otWeekend||0);
+    const otHolidayH = Number(item.otHoliday||0);
+    const totalOt = otDayH + otWeekendH + otHolidayH;
+
+    let otClass = "";
+    if(otDayH>0){
+      otClass = "ot-block-day";
+    }else if(otWeekendH>0){
+      otClass = "ot-block-weekend";
+    }else if(otHolidayH>0){
+      otClass = "ot-block-holiday";
+    }
+
+    let bottomHtml = "";
+    // 上班+加班：上下两个色块，填满日期下方剩余全部空间
+    if(workH>0 && totalOt>0){
+      bottomHtml = `
+        <div class="day-bottom">
+          <div class="work-block">工：${workH}h</div>
+          <div class="ot-block ${otClass}">加${totalOt}h</div>
+        </div>
+      `;
+    }else if(workH>0){
+      // 只有上班：色块填满整个day-bottom区域
+      bottomHtml = `
+        <div class="day-bottom">
+          <div class="work-block">工：${workH}h</div>
+        </div>
+      `;
+    }else if(totalOt>0){
+      // 只有加班：加班色块填满
+      bottomHtml = `
+        <div class="day-bottom">
+          <div class="ot-block ${otClass}">加${totalOt}h</div>
+        </div>
+      `;
+    }
+
+    cell.innerHTML = `
+      <div class="day-num">${d}</div>
+      ${bottomHtml}
+    `;
+    cell.onclick = ()=>openModal(dateKey);
+    grid.appendChild(cell);
+  }
+
+  calcMonthStat(y,m);
+}
+
+function calcMonthStat(y,m){
+  const data = getAttendance();
+  let workDayCount = 0;
+  let workHourTotal = 0;
+  let otDayTotal = 0;
+  let otWeekendTotal = 0;
+  let otHolidayTotal = 0;
+  let otDayCount = 0;
+  let otTotalAll = 0;
+  let totalWorkAll = 0;
+
+  Object.keys(data).forEach(key=>{
+    const [ky,km,kd] = key.split("-");
+    if(Number(ky)!==y || Number(km)-1!==m) return;
+    const row = data[key];
+    const hasWork = Number(row.workHour||0)>0;
+    const hasOt = Number(row.otDay||0)+Number(row.otWeekend||0)+Number(row.otHoliday||0) > 0;
+
+    if(hasWork || hasOt){
+      workDayCount++;
+    }
+    if(row.otWeekend > 0 || row.otHoliday >0){
+      otDayCount++;
+    }
+
+    workHourTotal += Number(row.workHour||0);
+    otDayTotal += Number(row.otDay||0);
+    otWeekendTotal += Number(row.otWeekend||0);
+    otHolidayTotal += Number(row.otHoliday||0);
+
+    const dayOt = Number(row.otDay||0)+Number(row.otWeekend||0)+Number(row.otHoliday||0);
+    otTotalAll += dayOt;
+    totalWorkAll += Number(row.workHour||0) + dayOt;
+  })
+
+  $("#workDayCount").innerText = workDayCount;
+  $("#workHourTotal").innerText = workHourTotal.toFixed(2);
+  $("#otDayTotal").innerText = otDayTotal.toFixed(2);
+  $("#otWeekendTotal").innerText = otWeekendTotal.toFixed(2);
+  $("#otHolidayTotal").innerText = otHolidayTotal.toFixed(2);
+  $("#otDayCount").innerText = otDayCount;
+  $("#otTotalAll").innerText = otTotalAll.toFixed(2);
+  $("#totalWorkAll").innerText = totalWorkAll.toFixed(2);
+
+  // 预计工资计算：底薪 + 加班费（按时薪倍数）
+  // 标准工时：22天 × 8小时 = 176小时
+  const base = getBaseSalary();
+  const standardHours = 22 * 8;
+  const hourly = standardHours > 0 ? base / standardHours : 0;
+
+  const otDayPay = otDayTotal * hourly * 1.5;
+  const otWeekendPay = otWeekendTotal * hourly * 2;
+  const otHolidayPay = otHolidayTotal * hourly * 3;
+  const estTotal = base + otDayPay + otWeekendPay + otHolidayPay;
+
+  $("#hourlyRate").innerText = hourly.toFixed(2);
+  $("#otDayPay").innerText = otDayPay.toFixed(2);
+  $("#otWeekendPay").innerText = otWeekendPay.toFixed(2);
+  $("#otHolidayPay").innerText = otHolidayPay.toFixed(2);
+  $("#estSalary").innerText = estTotal.toFixed(2);
+}
+
+function openModal(dateKey){
+  activeDay = dateKey;
+  $("#modalDate").innerText = `考勤登记 ${dateKey}`;
+  const data = getAttendance();
+  const item = data[dateKey] || {};
+  $("#workHour").value = item.workHour || "";
+  $("#otHour").value = "";
+
+  document.querySelectorAll('input[name="otType"]').forEach(radio=>radio.checked=false);
+
+  // 区分：已有记录 与 空白新记录
+  if(item.otDay>0){
+    $("input[value='day']").checked = true;
+    $("#otHour").value = item.otDay;
+    $("#otHour").disabled = false;
+  }else if(item.otWeekend>0){
+    $("input[value='weekend']").checked = true;
+    $("#otHour").value = item.otWeekend;
+    $("#otHour").disabled = false;
+  }else if(item.otHoliday>0){
+    $("input[value='holiday']").checked = true;
+    $("#otHour").value = item.otHoliday;
+    $("#otHour").disabled = false;
+  }else{
+    // 空白新记录：默认选中日常加班，输入框解锁
+    $("input[value='day']").checked = true;
+    $("#otHour").disabled = false;
+  }
+
+  $("#modal").style.display = "flex";
+}
+
+$("#save").onclick = ()=>{
+  const data = getAttendance();
+  const otType = document.querySelector('input[name="otType"]:checked').value;
+  const otVal = Number($("#otHour").value||0);
+
+  let otDay=0,otWeekend=0,otHoliday=0;
+  if(otType === "day") otDay = otVal;
+  if(otType === "weekend") otWeekend = otVal;
+  if(otType === "holiday") otHoliday = otVal;
+
+  data[activeDay] = {
+    workHour: Number($("#workHour").value||0),
+    otDay,
+    otWeekend,
+    otHoliday,
+  };
+
+  saveAttendance(data);
+  $("#modal").style.display = "none";
+  renderCalendar();
+}
+
+$("#del").onclick = ()=>{
+  const data = getAttendance();
+  if(data[activeDay]){
+    delete data[activeDay];
+    saveAttendance(data);
+  }
+  $("#modal").style.display = "none";
+  renderCalendar();
+}
+
+$("#close").onclick = ()=>$("#modal").style.display = "none";
+$("#prev").onclick = ()=>{
+  currentDate.setMonth(currentDate.getMonth()-1);
+  renderCalendar();
+}
+$("#next").onclick = ()=>{
+  currentDate.setMonth(currentDate.getMonth()+1);
+  renderCalendar();
+}
+
+$("#exportBtn").onclick = ()=>{
+  const data = getAttendance();
+  // 导出时附带底薪，方便完整备份
+  const exportObj = {
+    attendance: data,
+    baseSalary: getBaseSalary()
+  };
+  const jsonStr = JSON.stringify(exportObj, null, 2);
+  const blob = new Blob([jsonStr],{type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `考勤备份_${new Date().toLocaleDateString()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  alert("✅备份文件已下载！");
+}
+
+$("#importBtn").onclick = function(){
+  $("#file-input").value = '';
+  $("#file-input").click();
+}
+
+$("#file-input").onchange = function(e){
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try {
+      const json = JSON.parse(ev.target.result);
+      // 兼容旧格式（纯考勤对象）和新格式（含 baseSalary）
+      if(json.attendance && typeof json.attendance === "object"){
+        saveAttendance(json.attendance);
+        if(typeof json.baseSalary === "number" || typeof json.baseSalary === "string"){
+          const bs = Number(json.baseSalary) || 2300;
+          saveBaseSalary(bs);
+          $("#baseSalary").value = bs;
+        }
+      }else{
+        // 旧格式：直接是考勤数据
+        saveAttendance(json);
+      }
+      renderCalendar();
+      alert("✅导入成功！");
+    } catch(err) {
+      alert("❌导入失败！请选择本系统导出的 .json 备份文件");
+      console.error(err);
+    }
+  }
+  reader.readAsText(file);
+}
+
+document.querySelectorAll('input[name="otType"]').forEach(radio=>{
+  radio.addEventListener('change', function(){
+    if(this.value === "none"){
+      $("#otHour").value = "";
+      $("#otHour").disabled = true;
+    }else{
+      $("#otHour").disabled = false;
+    }
+  })
+})
+
+// 底薪输入初始化与监听
+const baseInput = $("#baseSalary");
+baseInput.value = getBaseSalary();
+baseInput.addEventListener("input", function(){
+  const val = Number(this.value) || 0;
+  saveBaseSalary(val);
+  // 重新计算当前月统计（工资部分）
+  const y = currentDate.getFullYear();
+  const m = currentDate.getMonth();
+  calcMonthStat(y, m);
+});
+baseInput.addEventListener("change", function(){
+  const val = Number(this.value) || 0;
+  saveBaseSalary(val);
+  const y = currentDate.getFullYear();
+  const m = currentDate.getMonth();
+  calcMonthStat(y, m);
+});
+
+renderCalendar();
+
+function setRemind(){
+  const check = ()=>{
+    const now = new Date();
+    if(now.getHours()===21 && now.getMinutes()===30){
+      alert("记得登记今日考勤！");
+    }
+  }
+  setInterval(check,60000);
+}
+setRemind();
+</script>
+</body>
+</html>
